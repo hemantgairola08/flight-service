@@ -1,0 +1,1 @@
+FLIGHT_SERVICE_URL = "http://flight-service:8000"
