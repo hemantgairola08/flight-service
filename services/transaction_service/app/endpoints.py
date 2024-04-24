@@ -1,16 +1,14 @@
 # transaction_service.py
-import random
-import string
-import time
 
 from fastapi import FastAPI, HTTPException, APIRouter
-from models import BookingRequest
 from models import ItineraryRequest
 import database
 
 
 app = FastAPI()
-router = APIRouter(prefix="/book_travel", tags=["transaction"])
+
+router = APIRouter(prefix="/travel", tags=["transaction"])
+
 
 
 

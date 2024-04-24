@@ -15,7 +15,7 @@ from models.models import Flight
 
 app = FastAPI()
 
-router = APIRouter(prefix="/flights/reserve", tags=["flights"])
+router = APIRouter(prefix="/flights/booking", tags=["flights"])
 
 
 hostname = "rabbitmq"
