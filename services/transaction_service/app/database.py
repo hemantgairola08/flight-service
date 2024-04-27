@@ -19,7 +19,7 @@ def initialize_database():
                       details TEXT,
                       booking_type TEXT NOT NULL CHECK(booking_type IN ('FLIGHT', 'HOTEL')),
                       user_id INTEGER,
-                      overall_status TEXT NOT NULL CHECK(overall_status IN ('CREATED', 'FAILED', 'BOOKED')),
+                      overall_status TEXT NOT NULL CHECK(overall_status IN ('CREATED', 'FAILED', 'BOOKED', 'CANCELLED')),
                       price DOUBLE,
                       remarks TEXT)''')
 

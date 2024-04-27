@@ -10,11 +10,13 @@ class ReservationRequest(BaseModel):
 
 class ReservationModificationRequest(BaseModel):
     booking_id: int
-    reservation_id: int
-    new_flight_id: int
+    origin: str
+    destination: str
+    departure_date: str
+    user_id: int
 
 class ReservationCancelRequest(BaseModel):
-    reservation_id: int
+    booking_id: str
 
 class ReservationStatusRequest(BaseModel):
     booking_id: str

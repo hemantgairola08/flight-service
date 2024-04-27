@@ -10,3 +10,7 @@ class BookingRequest(BaseModel):
 
 class ItineraryRequest(BaseModel):
     booking_id: str
+
+class ItineraryRequestByUserId(BaseModel):
+    user_id: str
+

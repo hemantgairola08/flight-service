@@ -38,13 +38,13 @@ def connect_rabbitmq():
     return connect_rabbitmq()  # Retry connection
 
 connection, channel = connect_rabbitmq()
-channel.queue_declare(queue='flight_status_booking_queue')
+channel.queue_declare(queue='bookings')
 
 
 
 def send_message_to_queue(message):
     # Send message to RabbitMQ for flight or hotel booking
-    channel.basic_publish(exchange='', routing_key='flight_status_booking_queue', body=json.dumps(message))
+    channel.basic_publish(exchange='', routing_key='bookings', body=json.dumps(message))
 
 # Endpoint to reserve a flight
 @router.post("/")
@@ -69,7 +69,8 @@ def reserve_flight(payload: ReservationRequest):
         "booking_details": booking_details,
         "overall_status": "BOOKED",
         "remarks": "",
-        "price": 0
+        "price": 0,
+        "request_type": "CREATE"
     }
 
 
@@ -161,38 +162,102 @@ def update_transaction_service(booking_details, overall_booking_details):
 
 
 # Endpoint to modify an existing flight reservation
-@router.put("/modify", response_model=Reservation)
+# @router.put("/modify", response_model=Reservation)
+@router.put("/modify")
 def modify_reservation(payload: ReservationModificationRequest):
+    # Search flight first
+    print(f"Payload for flight reservation: {payload.json()}")
     conn, cursor = database.get_connection()
 
+    origin = payload.origin
+    destination = payload.destination
+    departure_time = payload.departure_date
+    # booking_id = "".join(random.choices(string.ascii_letters.upper(), k=5) + random.choices(string.digits, k=5))
+
+    # Create default response
+    booking_details = {
+        "booking_id": payload.booking_id,
+        "origin": payload.origin,
+        "destination": payload.destination,
+        "departure_date": payload.departure_date
+    }
+
+    overall_booking_details = {
+        "booking_details": booking_details,
+        "overall_status": "BOOKED",
+        "remarks": "",
+        "price": 0,
+        "request_type": "MODIFY"
+    }
+
+    if not origin or not destination or not departure_time:
+        detail = "'origin', 'destination' and 'departure_time' must be provided in the payload"
+        overall_booking_details["overall_status"] = "FAILED"
+        overall_booking_details["remarks"] = detail
+        update_transaction_service(booking_details, overall_booking_details)
+        raise HTTPException(status_code=400,
+                            detail="'origin', 'destination' and 'departure_time' must be provided in the payload")
+
+    # Filter flights based on origin and destination
+    cursor.execute("SELECT * FROM flights WHERE origin=? AND destination=? AND departure_time=?",
+                   (origin, destination, departure_time))
+    rows = cursor.fetchall()
+
+    print(f"Rows details : {rows}")
+    filtered_flights = [Flight(id=row[0], origin=row[1], destination=row[2], departure_time=row[3], capacity=row[4],
+                               available_seats=row[5], price=row[6]) for row
+                        in rows]
+    print(filtered_flights)
+
+    if len(rows) == 0:
+        database.close_connection(conn)
+        detail = "Flight not found for given details"
+        overall_booking_details["overall_status"] = "FAILED"
+        overall_booking_details["remarks"] = detail
+        update_transaction_service(booking_details, overall_booking_details)
+        raise HTTPException(status_code=404, detail="Flight not found")
+
+    # booking_id = payload.booking_id
+    flight_id = filtered_flights[0].id
+
+
     # Check if the reservation exists
-    cursor.execute("SELECT * FROM reservations WHERE id=?", (payload.reservation_id,))
+    cursor.execute("SELECT * FROM reservations WHERE booking_id=?", (payload.booking_id,))
     row = cursor.fetchone()
     print(row)
     if row is None:
         database.close_connection(conn)
-        raise HTTPException(status_code=404, detail="Reservation not found")
+        raise HTTPException(status_code=404, detail=f"Reservation booking id {payload.booking_id} not found")
 
     old_flight_id = row[1]
     user_id = row[2]
 
-    # Update reservation details
-    cursor.execute("UPDATE reservations SET flight_id=? WHERE id=?",
-                   (payload.booking_id,
-                    payload.new_flight_id,
-                    payload.reservation_id))
+
 
     # Check if the flight has changed
-    if old_flight_id != payload.new_flight_id:
+    if old_flight_id != flight_id:
+        # Update reservation details
+        cursor.execute("UPDATE reservations SET flight_id=? WHERE booking_id=?",
+                       (flight_id,
+                        payload.booking_id))
         # Increase available seats for old flight
         cursor.execute("UPDATE flights SET available_seats = available_seats + 1 WHERE id = ?", (old_flight_id,))
         # Decrease available seats for new flight
         cursor.execute("UPDATE flights SET available_seats = available_seats - 1 WHERE id = ?",
-                       (payload.new_flight_id,))
+                       (flight_id,))
 
     conn.commit()
     database.close_connection(conn)
-    return {"id": payload.reservation_id, "booking_id": payload.booking_id, "flight_id": payload.new_flight_id, "user_id": user_id}
+
+    print(f"Flight booking has been modified against booking id : {booking_details}")
+    print(f"Sending message to transaction service for modify request : {booking_details}")
+
+    send_message_to_queue(overall_booking_details)
+    print(f"Sent message: {overall_booking_details}")
+
+    return overall_booking_details
+
+    #return {"id": payload.reservation_id, "booking_id": payload.booking_id, "flight_id": payload.new_flight_id, "user_id": user_id}
 
 
 # Endpoint to cancel an existing flight reservation
@@ -201,7 +266,7 @@ def cancel_reservation(payload: ReservationCancelRequest):
     conn, cursor = database.get_connection()
 
     # Check if the reservation exists
-    cursor.execute("SELECT flight_id FROM reservations WHERE id=?", (payload.reservation_id,))
+    cursor.execute(f"SELECT flight_id FROM reservations WHERE booking_id='{payload.booking_id}'")
     row = cursor.fetchone()
     print(row)
     if row is None:
@@ -211,13 +276,22 @@ def cancel_reservation(payload: ReservationCancelRequest):
     flight_id = row[0]
 
     # Delete the reservation from the database
-    cursor.execute("DELETE FROM reservations WHERE id=?", (payload.reservation_id,))
+    cursor.execute(f"DELETE FROM reservations WHERE booking_id='{payload.booking_id}'")
 
     # Increase available seats for the canceled flight
     cursor.execute("UPDATE flights SET available_seats = available_seats + 1 WHERE id = ?", (flight_id,))
 
     conn.commit()
     database.close_connection(conn)
+
+    print(f"Flight has been cancelled against booking id : {payload.booking_id}")
+    print(f"Sending message to transaction service : {payload.booking_id}")
+    overall_booking_details = {
+        "booking_id": payload.booking_id,
+        "request_type": "CANCEL"
+    }
+
+    send_message_to_queue(overall_booking_details)
 
     return {"message": "Reservation canceled successfully"}
 

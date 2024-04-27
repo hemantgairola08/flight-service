@@ -25,7 +25,7 @@ def initialize_database():
 
     # Create reservations table
     cursor.execute('''CREATE TABLE IF NOT EXISTS reservations
-                      (booking_id INTEGER PRIMARY KEY,
+                      (booking_id TEXT PRIMARY KEY,
                       flight_id INTEGER,
                       user_id INTEGER,
                       FOREIGN KEY (flight_id) REFERENCES flights(id))''')

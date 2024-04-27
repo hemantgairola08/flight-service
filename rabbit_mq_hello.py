@@ -14,7 +14,7 @@ connection = pika.BlockingConnection(
 channel = connection.channel()
 
 # Replace with the queue name you want to interact with
-queue_name = "my_queue"
+queue_name = "bookings"
 
 channel.queue_declare(queue=queue_name)
 
